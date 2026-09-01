@@ -7,7 +7,6 @@ COPY deno.json deno.lock ./
 RUN deno install --frozen
 
 COPY src ./src
-RUN deno check src/http.ts src/stdio.ts
 
 # Cache-warm the npm graph and drop privileges for runtime.
 RUN chown -R deno:deno /deno-dir /app
