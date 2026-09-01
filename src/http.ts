@@ -19,9 +19,19 @@ const handler = createMcpHandler(() => createServer(tasks), {
 
 export default {
   fetch(request: Request): Promise<Response> | Response {
+    const { pathname } = new URL(request.url);
+
     // Unauthenticated so container health checks work; reveals nothing.
-    if (new URL(request.url).pathname.endsWith("/health")) {
+    if (pathname.endsWith("/health")) {
       return new Response("ok\n", { headers: { "content-type": "text/plain" } });
+    }
+
+    // OAuth discovery must never answer 401 — that tells a client to
+    // authenticate before it can learn how to authenticate, and connector
+    // probes read it as a broken OAuth server rather than as "no OAuth".
+    // 404 is the honest answer: this server takes a static bearer token.
+    if (pathname.includes("/.well-known/")) {
+      return new Response("not found\n", { status: 404 });
     }
 
     if (!authorized(request)) return unauthorized();
