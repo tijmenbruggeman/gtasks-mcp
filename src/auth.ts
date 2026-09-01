@@ -16,12 +16,16 @@ export function createBearerGate(token: string) {
   };
 }
 
+/**
+ * Deliberately a bare 403 with no `WWW-Authenticate` challenge.
+ *
+ * A 401 carrying `WWW-Authenticate: Bearer` advertises OAuth 2.0 (RFC 6750),
+ * so clients probing this endpoint try to start an OAuth flow that does not
+ * exist here. This server takes a static token supplied out of band.
+ */
 export function unauthorized(): Response {
-  return new Response(JSON.stringify({ error: "unauthorized" }), {
-    status: 401,
-    headers: {
-      "content-type": "application/json",
-      "www-authenticate": 'Bearer realm="mcp"',
-    },
+  return new Response(JSON.stringify({ error: "forbidden" }), {
+    status: 403,
+    headers: { "content-type": "application/json" },
   });
 }

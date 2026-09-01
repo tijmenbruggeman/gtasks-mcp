@@ -17,13 +17,19 @@ const handler = createMcpHandler(() => createServer(tasks), {
   onerror: (error) => console.error("[mcp]", error.message),
 });
 
+/** Method, path and status only — never headers, which carry the token. */
+function log(request: Request, response: Response): Response {
+  console.log(`${request.method} ${new URL(request.url).pathname} -> ${response.status}`);
+  return response;
+}
+
 export default {
-  fetch(request: Request): Promise<Response> | Response {
+  async fetch(request: Request): Promise<Response> {
     const { pathname } = new URL(request.url);
 
     // Unauthenticated so container health checks work; reveals nothing.
     if (pathname.endsWith("/health")) {
-      return new Response("ok\n", { headers: { "content-type": "text/plain" } });
+      return log(request, new Response("ok\n", { headers: { "content-type": "text/plain" } }));
     }
 
     // OAuth discovery must never answer 401 — that tells a client to
@@ -31,11 +37,11 @@ export default {
     // probes read it as a broken OAuth server rather than as "no OAuth".
     // 404 is the honest answer: this server takes a static bearer token.
     if (pathname.includes("/.well-known/")) {
-      return new Response("not found\n", { status: 404 });
+      return log(request, new Response("not found\n", { status: 404 }));
     }
 
-    if (!authorized(request)) return unauthorized();
+    if (!authorized(request)) return log(request, unauthorized());
 
-    return handler.fetch(request);
+    return log(request, await handler.fetch(request));
   },
 };
