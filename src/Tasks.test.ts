@@ -1,28 +1,26 @@
-import { describe, expect, test } from "bun:test";
-import { normalizeDueDate } from "./Tasks.js";
+import { assertEquals, assertThrows } from "@std/assert";
+import { normalizeDueDate } from "./Tasks.ts";
 
-describe("normalizeDueDate", () => {
-  test("ISO date only: returns midnight UTC", () => {
-    expect(normalizeDueDate("2025-03-19")).toBe("2025-03-19T00:00:00.000Z");
-  });
+Deno.test("normalizeDueDate: ISO date only returns midnight UTC", () => {
+  assertEquals(normalizeDueDate("2025-03-19"), "2025-03-19T00:00:00.000Z");
+});
 
-  test("ISO datetime without timezone: returns date portion at midnight UTC", () => {
-    expect(normalizeDueDate("2025-03-19T21:00:00")).toBe("2025-03-19T00:00:00.000Z");
-  });
+Deno.test("normalizeDueDate: datetime without timezone returns date at midnight UTC", () => {
+  assertEquals(normalizeDueDate("2025-03-19T21:00:00"), "2025-03-19T00:00:00.000Z");
+});
 
-  test("ISO datetime with Z: returns date portion at midnight UTC", () => {
-    expect(normalizeDueDate("2025-03-19T21:00:00Z")).toBe("2025-03-19T00:00:00.000Z");
-  });
+Deno.test("normalizeDueDate: datetime with Z returns date at midnight UTC", () => {
+  assertEquals(normalizeDueDate("2025-03-19T21:00:00Z"), "2025-03-19T00:00:00.000Z");
+});
 
-  test("ISO datetime with offset: returns UTC date portion at midnight", () => {
-    expect(normalizeDueDate("2025-03-19T21:00:00+05:00")).toBe("2025-03-19T00:00:00.000Z");
-  });
+Deno.test("normalizeDueDate: datetime with offset returns UTC date at midnight", () => {
+  assertEquals(normalizeDueDate("2025-03-19T21:00:00+05:00"), "2025-03-19T00:00:00.000Z");
+});
 
-  test("invalid string throws error", () => {
-    expect(() => normalizeDueDate("not-a-date")).toThrow("Invalid due date format");
-  });
+Deno.test("normalizeDueDate: invalid string throws", () => {
+  assertThrows(() => normalizeDueDate("not-a-date"), Error, "Invalid due date format");
+});
 
-  test("undefined returns undefined", () => {
-    expect(normalizeDueDate(undefined)).toBeUndefined();
-  });
+Deno.test("normalizeDueDate: undefined passes through", () => {
+  assertEquals(normalizeDueDate(undefined), undefined);
 });

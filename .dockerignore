@@ -1,0 +1,8 @@
+.git
+.github
+node_modules
+dist
+*.md
+logo.jpg
+gcp-oauth.keys.json
+.gtasks-server-credentials.json

@@ -1,0 +1,31 @@
+{
+  "name": "@tijmen/gtasks-mcp",
+  "version": "0.2.0",
+  "exports": "./src/http.ts",
+  "tasks": {
+    "dev": "deno serve --watch --allow-net --allow-env --port 8080 src/http.ts",
+    "start": "deno serve --allow-net --allow-env --port 8080 --host 0.0.0.0 src/http.ts",
+    "stdio": "deno run --allow-net --allow-env src/stdio.ts",
+    "check": "deno check src/*.ts",
+    "test": "deno test",
+    "auth": "deno run --allow-net --allow-env --allow-read=gcp-oauth.keys.json src/auth_cli.ts"
+  },
+  "imports": {
+    "@modelcontextprotocol/server": "npm:@modelcontextprotocol/server@^2.0.0",
+    "@modelcontextprotocol/server/": "npm:/@modelcontextprotocol/server@^2.0.0/",
+    "@std/assert": "jsr:@std/assert@^1.0.0",
+    "googleapis": "npm:googleapis@^144.0.0",
+    "zod": "npm:zod@^4.2.0"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": [
+      "deno.window",
+      "deno.ns"
+    ]
+  },
+  "nodeModulesDir": "auto",
+  "fmt": {
+    "lineWidth": 100
+  }
+}

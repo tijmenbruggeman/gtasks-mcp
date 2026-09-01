@@ -63,46 +63,77 @@ The server provides access to Google Tasks resources:
 
 ## Getting started
 
-1. [Create a new Google Cloud project](https://console.cloud.google.com/projectcreate)
+Runs on Deno, either as a local stdio server or as a container serving
+Streamable HTTP behind a reverse proxy or Cloudflare Tunnel.
+
+### 1. Google Cloud setup
+
+1. [Create a Google Cloud project](https://console.cloud.google.com/projectcreate)
 2. [Enable the Google Tasks API](https://console.cloud.google.com/workspace-api/products)
-3. [Configure an OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent) ("internal" is fine for testing)
-4. Add scopes `https://www.googleapis.com/auth/tasks`
-5. [Create an OAuth Client ID](https://console.cloud.google.com/apis/credentials/oauthclient) for application type "Desktop App"
-6. Download the JSON file of your client's OAuth keys
-7. Rename the key file to `gcp-oauth.keys.json` and place into the root of this repo (i.e. `gcp-oauth.keys.json`)
+3. [Configure the OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent) and add the scope `https://www.googleapis.com/auth/tasks`
+4. **Publish the app** (status "In production"). While it sits in "Testing", Google expires refresh tokens after 7 days, which breaks any hosted deployment.
+5. [Create an OAuth Client ID](https://console.cloud.google.com/apis/credentials/oauthclient) of type "Desktop App" and save the JSON as `gcp-oauth.keys.json` in this repo
 
-Make sure to build the server with either `npm run build` or `npm run watch`.
-
-### Installing via Smithery
-
-To install Google Tasks Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@zcaceres/gtasks):
+### 2. Mint a refresh token
 
 ```bash
-npx -y @smithery/cli install @zcaceres/gtasks --client claude
+deno task auth
 ```
 
-### Authentication
+Opens a consent flow and prints the three values the server needs:
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`.
 
-To authenticate and save credentials:
+### 3. Run it
 
-1. Run the server with the `auth` argument: `npm run start auth`
-2. This will open an authentication flow in your system browser
-3. Complete the authentication process
-4. Credentials will be saved in the root of this repo (i.e. `.gdrive-server-credentials.json`)
+**Locally over stdio:**
 
-### Usage with Desktop App
-
-To integrate this server with the desktop app, add the following to your app's server configuration:
+```bash
+export GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... GOOGLE_REFRESH_TOKEN=...
+deno task stdio
+```
 
 ```json
 {
   "mcpServers": {
     "gtasks": {
-      "command": "/opt/homebrew/bin/node",
-      "args": [
-        "{ABSOLUTE PATH TO FILE HERE}/dist/index.js"
-      ]
+      "command": "deno",
+      "args": ["task", "--cwd", "{ABSOLUTE PATH TO REPO}", "stdio"]
     }
   }
 }
+```
+
+**As a container over HTTP:**
+
+```bash
+docker build -t gtasks-mcp .
+docker run -p 8080:8080 \
+  -e MCP_TOKEN="$(openssl rand -base64 32)" \
+  -e GOOGLE_CLIENT_ID=... -e GOOGLE_CLIENT_SECRET=... -e GOOGLE_REFRESH_TOKEN=... \
+  gtasks-mcp
+```
+
+Every request must carry `Authorization: Bearer $MCP_TOKEN` — the server holds
+your Google credentials, so an unauthenticated endpoint hands anyone your task
+list. `GET /health` is the one unauthenticated route.
+
+```bash
+claude mcp add -t http gtasks https://your.host/gtasks/mcp -H "Authorization: Bearer $MCP_TOKEN"
+```
+
+### Environment variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `GOOGLE_CLIENT_ID` | yes | OAuth client from Google Cloud |
+| `GOOGLE_CLIENT_SECRET` | yes | OAuth client secret |
+| `GOOGLE_REFRESH_TOKEN` | yes | Long-lived token from `deno task auth` |
+| `MCP_TOKEN` | HTTP only | Shared bearer token callers must present |
+
+### Development
+
+```bash
+deno task dev     # watch mode on :8080
+deno task check   # type check
+deno task test    # unit tests
 ```

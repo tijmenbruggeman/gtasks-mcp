@@ -1,11 +1,5 @@
-import {
-  CallToolRequest,
-  CallToolResult,
-  ListResourcesRequest,
-  ReadResourceRequest,
-} from "@modelcontextprotocol/sdk/types.js";
-import { GaxiosResponse } from "gaxios";
-import { tasks_v1 } from "googleapis";
+import type { CallToolResult } from "@modelcontextprotocol/server";
+import type { tasks_v1 } from "googleapis";
 
 const MAX_TASK_RESULTS = 100;
 
@@ -27,14 +21,16 @@ export function normalizeDueDate(due: string | undefined): string | undefined {
   return `${year}-${month}-${day}T00:00:00.000Z`;
 }
 
-export class TaskResources {
-  static async read(request: ReadResourceRequest, tasks: tasks_v1.Tasks) {
-    const taskId = request.params.uri.replace("gtasks:///", "");
+const text = (body: string): CallToolResult => ({
+  content: [{ type: "text", text: body }],
+  isError: false,
+});
 
-    const taskListsResponse: GaxiosResponse<tasks_v1.Schema$TaskLists> =
-      await tasks.tasklists.list({
-        maxResults: MAX_TASK_RESULTS,
-      });
+export class TaskResources {
+  static async read(taskId: string, tasks: tasks_v1.Tasks) {
+    const taskListsResponse = await tasks.tasklists.list({
+      maxResults: MAX_TASK_RESULTS,
+    });
 
     const taskLists = taskListsResponse.data.items || [];
     let task: tasks_v1.Schema$Task | null = null;
@@ -42,14 +38,13 @@ export class TaskResources {
     for (const taskList of taskLists) {
       if (taskList.id) {
         try {
-          const taskResponse: GaxiosResponse<tasks_v1.Schema$Task> =
-            await tasks.tasks.get({
-              tasklist: taskList.id,
-              task: taskId,
-            });
+          const taskResponse = await tasks.tasks.get({
+            tasklist: taskList.id,
+            task: taskId,
+          });
           task = taskResponse.data;
           break;
-        } catch (error) {
+        } catch {
           // Task not found in this list, continue to the next one
         }
       }
@@ -63,16 +58,12 @@ export class TaskResources {
   }
 
   static async list(
-    request: ListResourcesRequest,
+    cursor: string | undefined,
     tasks: tasks_v1.Tasks,
   ): Promise<[tasks_v1.Schema$Task[], string | null]> {
-    const pageSize = 10;
-    const params: any = {
-      maxResults: pageSize,
-    };
-
-    if (request.params?.cursor) {
-      params.pageToken = request.params.cursor;
+    const params: tasks_v1.Params$Resource$Tasks$List = { maxResults: 10 };
+    if (cursor) {
+      params.pageToken = cursor;
     }
 
     const taskListsResponse = await tasks.tasklists.list({
@@ -82,16 +73,15 @@ export class TaskResources {
     const taskLists = taskListsResponse.data.items || [];
 
     let allTasks: tasks_v1.Schema$Task[] = [];
-    let nextPageToken = null;
+    let nextPageToken: string | null = null;
 
     for (const taskList of taskLists) {
       const tasksResponse = await tasks.tasks.list({
-        tasklist: taskList.id,
+        tasklist: taskList.id ?? undefined,
         ...params,
       });
 
-      const taskItems = tasksResponse.data.items || [];
-      allTasks = allTasks.concat(taskItems);
+      allTasks = allTasks.concat(tasksResponse.data.items || []);
 
       if (tasksResponse.data.nextPageToken) {
         nextPageToken = tasksResponse.data.nextPageToken;
@@ -111,7 +101,7 @@ export class TaskActions {
     return taskList.map((task) => this.formatTask(task)).join("\n");
   }
 
-  private static async _list(request: CallToolRequest, tasks: tasks_v1.Tasks) {
+  private static async _list(tasks: tasks_v1.Tasks) {
     const taskListsResponse = await tasks.tasklists.list({
       maxResults: MAX_TASK_RESULTS,
     });
@@ -127,8 +117,7 @@ export class TaskActions {
             maxResults: MAX_TASK_RESULTS,
           });
 
-          const items = tasksResponse.data.items || [];
-          allTasks = allTasks.concat(items);
+          allTasks = allTasks.concat(tasksResponse.data.items || []);
         } catch (error) {
           console.error(`Error fetching tasks for list ${taskList.id}:`, error);
         }
@@ -137,161 +126,106 @@ export class TaskActions {
     return allTasks;
   }
 
-  static async create(request: CallToolRequest, tasks: tasks_v1.Tasks) {
-    const taskListId =
-      (request.params.arguments?.taskListId as string) || "@default";
-    const taskTitle = request.params.arguments?.title as string;
-    const taskNotes = request.params.arguments?.notes as string;
-    const taskDue = request.params.arguments?.due as string;
-
-    if (!taskTitle) {
+  static async create(
+    args: { taskListId?: string; title: string; notes?: string; due?: string },
+    tasks: tasks_v1.Tasks,
+  ): Promise<CallToolResult> {
+    if (!args.title) {
       throw new Error("Task title is required");
     }
 
-    const task: Record<string, string> = {
-      title: taskTitle,
-    };
-    if (taskNotes) task.notes = taskNotes;
-    if (taskDue) task.due = normalizeDueDate(taskDue)!;
+    const task: tasks_v1.Schema$Task = { title: args.title };
+    if (args.notes) task.notes = args.notes;
+    if (args.due) task.due = normalizeDueDate(args.due);
 
     const taskResponse = await tasks.tasks.insert({
-      tasklist: taskListId,
+      tasklist: args.taskListId || "@default",
       requestBody: task,
     });
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Task created: ${taskResponse.data.title}`,
-        },
-      ],
-      isError: false,
-    };
+    return text(`Task created: ${taskResponse.data.title}`);
   }
 
-  static async update(request: CallToolRequest, tasks: tasks_v1.Tasks) {
-    const taskListId =
-      (request.params.arguments?.taskListId as string) || "@default";
-    const taskUri = request.params.arguments?.uri as string;
-    const taskId = request.params.arguments?.id as string;
-    const taskTitle = request.params.arguments?.title as string;
-    const taskNotes = request.params.arguments?.notes as string;
-    const taskStatus = request.params.arguments?.status as string;
-    const taskDue = request.params.arguments?.due as string;
-
-    if (!taskUri) {
-      throw new Error("Task URI is required");
-    }
-
-    if (!taskId) {
+  static async update(
+    args: {
+      taskListId?: string;
+      id: string;
+      uri?: string;
+      title?: string;
+      notes?: string;
+      status?: string;
+      due?: string;
+    },
+    tasks: tasks_v1.Tasks,
+  ): Promise<CallToolResult> {
+    if (!args.id) {
       throw new Error("Task ID is required");
     }
 
-    const task: Record<string, string> = {
-      id: taskId,
-    };
-    if (taskTitle) task.title = taskTitle;
-    if (taskNotes) task.notes = taskNotes;
-    if (taskStatus) task.status = taskStatus;
-    if (taskDue) task.due = normalizeDueDate(taskDue)!;
+    const task: tasks_v1.Schema$Task = { id: args.id };
+    if (args.title) task.title = args.title;
+    if (args.notes) task.notes = args.notes;
+    if (args.status) task.status = args.status;
+    if (args.due) task.due = normalizeDueDate(args.due);
 
     const taskResponse = await tasks.tasks.patch({
-      tasklist: taskListId,
-      task: taskId,
+      tasklist: args.taskListId || "@default",
+      task: args.id,
       requestBody: task,
     });
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Task updated: ${taskResponse.data.title}`,
-        },
-      ],
-      isError: false,
-    };
+    return text(`Task updated: ${taskResponse.data.title}`);
   }
 
-  static async list(request: CallToolRequest, tasks: tasks_v1.Tasks) {
-    const allTasks = await this._list(request, tasks);
-    const taskList = this.formatTaskList(allTasks);
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Found ${allTasks.length} tasks:\n${taskList}`,
-        },
-      ],
-      isError: false,
-    };
+  static async list(tasks: tasks_v1.Tasks): Promise<CallToolResult> {
+    const allTasks = await this._list(tasks);
+    return text(`Found ${allTasks.length} tasks:\n${this.formatTaskList(allTasks)}`);
   }
 
-  static async delete(request: CallToolRequest, tasks: tasks_v1.Tasks) {
-    const taskListId =
-      (request.params.arguments?.taskListId as string) || "@default";
-    const taskId = request.params.arguments?.id as string;
+  static async listTaskLists(tasks: tasks_v1.Tasks): Promise<CallToolResult> {
+    const response = await tasks.tasklists.list({ maxResults: MAX_TASK_RESULTS });
+    const taskLists = response.data.items || [];
 
-    if (!taskId) {
-      throw new Error("Task URI is required");
+    if (taskLists.length === 0) {
+      return text("No task lists found");
+    }
+
+    const formatted = taskLists.map((list) => `${list.title} (ID: ${list.id})`).join("\n");
+    return text(`Found ${taskLists.length} task lists:\n${formatted}`);
+  }
+
+  static async delete(
+    args: { taskListId: string; id: string },
+    tasks: tasks_v1.Tasks,
+  ): Promise<CallToolResult> {
+    if (!args.id) {
+      throw new Error("Task ID is required");
     }
 
     await tasks.tasks.delete({
-      tasklist: taskListId,
-      task: taskId,
+      tasklist: args.taskListId || "@default",
+      task: args.id,
     });
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Task ${taskId} deleted`,
-        },
-      ],
-      isError: false,
-    };
+    return text(`Task ${args.id} deleted`);
   }
 
-  static async search(request: CallToolRequest, tasks: tasks_v1.Tasks) {
-    const userQuery = request.params.arguments?.query as string;
-
-    const allTasks = await this._list(request, tasks);
-    const filteredItems = allTasks.filter(
+  static async search(query: string, tasks: tasks_v1.Tasks): Promise<CallToolResult> {
+    const allTasks = await this._list(tasks);
+    const needle = query.toLowerCase();
+    const matches = allTasks.filter(
       (task) =>
-        task.title?.toLowerCase().includes(userQuery.toLowerCase()) ||
-        task.notes?.toLowerCase().includes(userQuery.toLowerCase()),
+        task.title?.toLowerCase().includes(needle) || task.notes?.toLowerCase().includes(needle),
     );
 
-    const taskList = this.formatTaskList(filteredItems);
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Found ${allTasks.length} tasks:\n${taskList}`,
-        },
-      ],
-      isError: false,
-    };
+    return text(`Found ${matches.length} tasks:\n${this.formatTaskList(matches)}`);
   }
 
-  static async clear(request: CallToolRequest, tasks: tasks_v1.Tasks) {
-    const taskListId =
-      (request.params.arguments?.taskListId as string) || "@default";
-
-    await tasks.tasks.clear({
-      tasklist: taskListId,
-    });
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Tasks from tasklist ${taskListId} cleared`,
-        },
-      ],
-      isError: false,
-    };
+  static async clear(
+    args: { taskListId: string },
+    tasks: tasks_v1.Tasks,
+  ): Promise<CallToolResult> {
+    await tasks.tasks.clear({ tasklist: args.taskListId || "@default" });
+    return text(`Tasks from tasklist ${args.taskListId} cleared`);
   }
 }
